@@ -63,8 +63,8 @@ IPAddress subnet(255, 255, 255, 0);                 //SET SUBNET MASK TO MATCH Y
 #define ETHERNET_PORT 2560                          // DEFINE PORT TO USE FOR ETHERNET COMMUNICATIONS INTERFACE
 //#define MAC_ADDRESS {  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEF }// DEFINE MAC ADDRESS ARRAY FOR ETHERNET COMMUNICATIONS INTERFACE
 
-const char* ssid     = "Bradford (Exchange)";       // Wi-Fi login
-const char* password = "WestY0rksh!re1954";
+const char* ssid     = "XXXXXXXXXX";       // Wi-Fi login - insert your own details here
+const char* password = "YYYYYYYYYY";       // Wi-Fi password - insert your own details here
 
 /* WiFi Socket Server and Client Class instance */
 WiFiServer server(ETHERNET_PORT);                   // Create and instance of an WIFIServer
