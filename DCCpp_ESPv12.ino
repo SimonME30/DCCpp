@@ -25,8 +25,8 @@
       *F9 - F12 - valve gear reverser servo, anticipate control from a custom throttle, values 160 - 175
       *F13 - F28 - not used
 
-    No momentum was designed in for motor control, as offstage auto operation by JMRI is anticipated requiring 1:1 control. 
-    Momentum and braking will come from a custom JMRI hardware throttle.
+    No momentum is designed as yet, however if braking and accel are modelled in the decoder, they will be activated
+    by functions, not as CV's. As such, any script in JMRI can reset momentum to off.
 
     It would be possible to enable OTA and CV command writing to Eeprom, however as I was happy programming over serial, I haven't done this yet.
 
@@ -76,16 +76,29 @@ char instring [23];         // command string creation
 byte ndx = 0;               // command string index
 int DEFAULTCAB = 3;         // DEFINE DEFAULT CAB ADDRESS
 int nCABAddr = 5565;        // CAB:  the short (1-127) or long (128-10293) address of the engine decoder, will store this in eeprom again later
+int nReg = 0;               // throttle command from ndx[1]
 int nSpeed = 0;             // throttle command from ndx[4]
 byte nDir = 1;              // throttle command from ndx[5] (fwd)
 byte fByte = 0;             // function command F0-F12
 byte eByte = 0;             // function command F13-F28
 uint32_t startTime = 0;     // timing function for F4 Firebox LED
 uint32_t waitUntil = 0;     // timing function for F4 Firebox LED
-int ledState = 0;           // ledState used to set F4 Firebox LED, HIGH is actually off
-int motorSpeed = 0;         // actual speed for motor
-int prevSpeed = 0;          // previous speed setting
+uint32_t firingTime = 4000; // time firebox door is open
+uint32_t shutTime = 15000;  // time firebox door is shut
+int ledState = 0;           // ledState used to set F4 Firebox LED,
+int ledState1 = 50;         // ledState used to set F4 Firebox LED firebox door almost closed
+int ledState2 = 255;        // ledState used to set F4 Firebox LED during firing,
+uint32_t uncouple = 1250;   // Servo move to 45 to open the coupler
+uint32_t couple = 1500;     // Servo move to 90 to close the coupler
+uint32_t FWD = 1375;        // Servo move to FWD gear position
+uint32_t REV = 1625;        // Servo move to REV gear position
+float motorSpeed = 0;       // actual speed for motor, float as accel/brake may create proportions
+float prevSpeed = 0;        // previous speed setting, float as accel/brake may create proportions
 int prevDir = 1;            // previous motor direction (fwd)
+int speedMax = 255;         // max speed
+int speedMin = 25;          // min start speed for the motor, currently just under stall. need to review this!
+int brake = 0;              // maybe get this from some of the unused F commands
+float accel = 0;            // maybe get this from different F commands
 
 
 //===================================================================================
@@ -110,9 +123,9 @@ Servo Rear_CouplerServo;    // (Rear Coupler)
 Servo ReverserServo;        // (Reverser)
 
 // Initial Positions of Servo Motors
-unsigned short nFrontPos = 90;    //90 is mid position, not up against a stop in the servo
-unsigned short nRearPos = 90;     //90 is mid position, not up against a stop in the servo
-unsigned short nReverPos = 90;    //90 is mid position, not up against a stop in the servo
+uint32_t nFrontPos = 1500;    //90 or 1500 is mid position, not up against a stop in the servo
+uint32_t nRearPos = 1500;     //90 or 1500 is mid position, not up against a stop in the servo
+uint32_t nReverPos = 1500;    //90 or 1500 is mid position, not up against a stop in the servo
 
 //===================================================================================
 void functions()
@@ -153,7 +166,7 @@ void functions()
   // this is a request for functions FL,F1-F8
   if ((fByte & 0xE0) == 128)
   { // 128 + F1*1 + F2*2 + F3*4 + F4*8 + F0*16
-    Serial.println("F0-F4 Command");
+    //Serial.println("F0-F4 Command");
     /*
         If F0 (Lights) is on
         Enable LED if DIRECTION = 1 (Forward)
@@ -171,90 +184,84 @@ void functions()
         digitalWrite(LED0, HIGH);//HIGH is on
         digitalWrite(LED1, LOW);//LOW is off
       }
-      Serial.println("F0 Enable LED");
+      //Serial.println("F0 Enable LED");
     }
     else
     {
       digitalWrite(LED0, LOW);//LOW is off
       digitalWrite(LED1, LOW);//LOW is off
-      Serial.println("F0 Disable LED");
+      //Serial.println("F0 Disable LED");
     }
     //F2 (Front Coupler) Command Process
     /*On - Control servo to decrease to 45 degrees
       Off– Control servo to return to 90 position*/
-    if (bitRead(fByte, 1) && nFrontPos > 45)
+    if (bitRead(fByte, 1) && nFrontPos > uncouple)
     {
-      for (nFrontPos = 90; nFrontPos >= 45; nFrontPos -= 1)
+      for (nFrontPos = couple; nFrontPos >= uncouple; nFrontPos -= 1)
       {
-        Front_CouplerServo.write(nFrontPos);
-        Serial.print("F2 Front servo Pos:");
-        Serial.println(nFrontPos);
-        millis() + 30;
+        Front_CouplerServo.writeMicroseconds(nFrontPos);
+        //Serial.print("F2 Front servo Pos:");
+        //Serial.println(nFrontPos);
         yield();                   //get out of the way for WiFi connectivity
       }
     }
-    if (bitRead(fByte, 1) == 0 && nFrontPos < 90)
+    if (bitRead(fByte, 1) == 0 && nFrontPos < couple)
     {
-      for (nFrontPos = 45; nFrontPos <= 90; nFrontPos += 1)
+      for (nFrontPos = uncouple; nFrontPos <= couple; nFrontPos += 1)
       {
-        Front_CouplerServo.write(nFrontPos);
-        Serial.print("F2 Front servo Pos:");
-        Serial.println(nFrontPos);
-        millis() + 30;
+        Front_CouplerServo.writeMicroseconds(nFrontPos);
+        //Serial.print("F2 Front servo Pos:");
+        //Serial.println(nFrontPos);
         yield();                   //get out of the way for WiFi connectivity
       }
     }
     //F3 (Rear Coupler) Command Process
     /*  On - Control servo to decrease to 45 degrees
         Off – Control servo to return to 90 position*/
-    if (bitRead(fByte, 2) && nRearPos > 45)
+    if (bitRead(fByte, 2) && nRearPos > uncouple)
     {
-      for (nRearPos = 90; nRearPos >= 45; nRearPos -= 1)
+      for (nRearPos = couple; nRearPos >= uncouple; nRearPos -= 1)
       {
-        Rear_CouplerServo.write(nRearPos);
-        Serial.print("F3 Rear servo Pos:");
-        Serial.println(nRearPos);
-        millis() + 30;
+        Rear_CouplerServo.writeMicroseconds(nRearPos);
+        //Serial.print("F3 Rear servo Pos:");
+        //Serial.println(nRearPos);
         yield();                   //get out of the way for WiFi connectivity
       }
     }
-    if (bitRead(fByte, 2) == 0 && nRearPos < 90)
+    if (bitRead(fByte, 2) == 0 && nRearPos < couple)
     {
-      for (nRearPos = 45; nRearPos <= 90; nRearPos += 1)
+      for (nRearPos = uncouple; nRearPos <= couple; nRearPos += 1)
       {
-        Rear_CouplerServo.write(nRearPos);
-        Serial.print("F3 Rear servo Pos:");
-        Serial.println(nRearPos);
-        millis() + 30;
+        Rear_CouplerServo.writeMicroseconds(nRearPos);
+        //Serial.print("F3 Rear servo Pos:");
+        //Serial.println(nRearPos);
         yield();                   //get out of the way for WiFi connectivity
       }
     }
-  }//end Fl, F0-F4 Commands
+  }    //end Fl, F0-F4 Commands
   // this is a request for functions F9-F12, which in this case control a servo for Walschearts Valve Gear
   if ((fByte & 0xF0) == 160)
   {
     Serial.println("F9-F12 Command");
 
-    // F9-F12 Command Process (reverse gear = 120)
-    if (nReverPos > map(fByte, 160, 175, 62, 122))
+    // F9-F12 Command Process (Byte values for F9-F12 range 160 - 175)
+    if (nReverPos > map(fByte, 160, 175, FWD, REV))
     {
-      for ( ; nReverPos >= map(fByte, 160, 175, 62, 122); nReverPos -= 1)
+      for ( ; nReverPos >= map(fByte, 160, 175, FWD, REV); nReverPos -= 1)
       {
-        ReverserServo.write(nReverPos);
-        Serial.print("F9-F12 Reverser Reduce cut-off:");
-        Serial.println(nReverPos);
-        millis() + 60;
+        ReverserServo.writeMicroseconds(nReverPos);
+        //Serial.print("F9-F12 Reverser Reduce cut-off:");
+        //Serial.println(nReverPos);
         yield();                   //get out of the way for WiFi connectivity
       }
     }
-    else if (nReverPos < map(fByte, 160, 175, 62, 122))
+    else if (nReverPos < map(fByte, 160, 175, FWD, REV))
     {
-      for ( ; nReverPos <= map(fByte, 160, 175, 62, 122); nReverPos += 1)
+      for ( ; nReverPos <= map(fByte, 160, 175, FWD, REV); nReverPos += 1)
       {
-        ReverserServo.write(nReverPos);
-        Serial.print("F9-F12 Reverser Increase Cut-off:");
-        Serial.println(nReverPos);
-        millis() + 60;
+        ReverserServo.writeMicroseconds(nReverPos);
+        //Serial.print("F9-F12 Reverser Increase Cut-off:");
+        //Serial.println(nReverPos);
         yield();                   //get out of the way for WiFi connectivity
       }
     }
@@ -263,23 +270,25 @@ void functions()
   // this is a request for functions F13-F20, used to emulate Momentum without writing to eeprom. Still to be re-written
   if (fByte == 222)
   { // F13 - F20
-    Serial.println("F13-F20 Command");
+    //Serial.println("F13-F20 Command");
     // F13 command check
     /* If F13 Momentum_Value received ie < f 03 222 BYTE2 >, map(F13,0,255,0,200), */
     if (bitRead(eByte, 0))
     {
-      Serial.print("F21-F28 not utilised");
+      //Serial.println("F21-F28 not utilised");
+      return;
     }
     //this is a request for functions F21-F28, used to emulate Braking without writing to eeprom Still to be re-written
 
     if (fByte == 223)
     { // F21 - F28
-      Serial.println("F21-F28 Command");
+      //Serial.println("F21-F28 Command");
       // F21 command check
       /* If F21 Brake_Value received ie < f 03 223 BYTE2 >, map(F21,0,255,0,200), reduce motor speed using delay(Brake_Value) */
       if (bitRead(eByte, 0))
       {
-        Serial.print("F21-F28 not utilised");
+        //Serial.println("F21-F28 not utilised");
+        return;
       }
     }
   }
@@ -290,26 +299,28 @@ void firebox() {
   /*  treated as stand alone as this is visible at all times*/
   if (bitRead(fByte, 3)) { // Firebox, fire for 20s every 2 mins
     if (nSpeed > 0) {
-      if (millis() - startTime >= waitUntil) {
-        if (ledState == 255) {
-          ledState = 50;
+      if (millis() - startTime >= waitUntil)
+      {
+        if (ledState == ledState2)
+        {
+          ledState = ledState1;
           startTime = millis();
-          waitUntil = 15000;    //on for 2 sec
-          Serial.println("Firebox door closed");
+          waitUntil = shutTime;    //on for 2 sec
+          //Serial.println("Firebox door closed");
           yield();
         }
         else
         {
-          ledState = 255;
+          ledState = ledState2;
           startTime = millis();
-          waitUntil = 4000;  //off for 10 sec
-          Serial.println("Firing");
+          waitUntil = firingTime;  //off for 10 sec
+          //Serial.println("Firing");
           yield();
         }
       }
     }
     else {
-      ledState = 50;
+      ledState = ledState1;
     }
   }
   else
@@ -336,8 +347,8 @@ void runMotor()  {
     prevSpeed = motorSpeed;             //update the stored speed value
     analogWrite(inputA1, 0);            //don't run this pin
     analogWrite(inputA2, motorSpeed);   //run this pin at desired speed
-    Serial.print("motor forward at ");
-    Serial.println(motorSpeed);
+    //Serial.print("motor forward at ");
+    //Serial.println(motorSpeed);
     yield();
   }
   if (motorSpeed > 0 && nDir == 0)                      //reverse
@@ -345,8 +356,8 @@ void runMotor()  {
     prevSpeed = motorSpeed;             //update the stored speed value
     analogWrite(inputA1, motorSpeed);            //don't run this pin
     analogWrite(inputA2, 0);   //run this pin at desired speed
-    Serial.print("motor reverse at ");
-    Serial.println(motorSpeed);
+    //Serial.print("motor reverse at ");
+    //Serial.println(motorSpeed);
     yield();
   }
   if (motorSpeed == 0)                //NB nSpeed -1 is emergency stop
@@ -354,7 +365,7 @@ void runMotor()  {
     prevSpeed = motorSpeed;
     analogWrite(inputA1, 0);    //stop the motor
     analogWrite(inputA2, 0);    //stop the motor
-    Serial.println("motor stopped, speed 0");
+    //Serial.println("motor stopped, speed 0");
     yield();
   }
 }
@@ -362,75 +373,141 @@ void runMotor()  {
 void parseCmdString() {
   while (Client.available() > 0) {
 
-    uint32_t startTime = millis();
+    //uint32_t startTime = millis();      // check how long it takes to process commands
     char inChar = (char)Client.read();    //read data from client
     instring[ndx++] = inChar;             //add data to string
-    if (inChar == '>') {                  // '>' is the terminating character for a DCC++ command
+    if (inChar == '>') // '>' is the terminating character for a DCC++ command
+    {
       instring[ndx] = '\0';               // terminating character added to the string
       ndx = 0;                            // reset ndx to 0 for the next string
 
-      Serial.println(instring);             //print the raw string for de-bugging
+      //Serial.println(instring);             //print the raw string for de-bugging
+
+
+
+
       yield();                              //get out of the way for WiFi connectivity
       char delimiters[] = "< >\r\n";        //working delimiters,
       char* valPosition = strtok(instring, delimiters);
       int tndx[] = {0, 0, 0, 0};            //4 x int.
-      /*Throttle Commands*/
-      if (strchr(instring, 't')) {      // throttle command format <t reg CAB Speed Dir>
-        for (int i = 0; i < 5; i++) {   // throttle commands should be 4 int long
-          tndx[i] = atoi(valPosition);  // convert to int
+
+      if (strchr(instring, 's'))//in DCCpp_Uno see Serial.command.cpp line 345
+      {
+        Client.print("<p1>");
+        Client.print("<iDCC++ BASE STATION FOR ARDUINO ");
+        Client.print("UNO");                  //should be ARDUINO_TYPE, hardcoded so as not to confuse JMRI
+        Client.print(" / ");
+        Client.print("ARDUINO MOTOR SHIELD"); //should be MOTOR_SHIELD_NAME, hardcoded so as not to confuse JMRI
+        Client.print(": V-");
+        Client.print("1.2.1+");               //should be VERSION, matched to the DCC++ base station version
+        Client.print(" / ");
+        Client.print(__DATE__);
+        Client.print(" ");
+        Client.print(__TIME__);
+        Client.print(">");
+        Client.print("<N1:");                 // Communication type, 0 = Serial, 1 = Ethernet
+        Client.print(WiFi.localIP());
+        Client.print(">");
+        return;
+      }
+      else if (strchr(instring, '1'))         // DCC++ power on command <1>
+      {
+        Client.print("<p1>");                 // DCC++ expected power on response
+        return;
+      }
+      else if (strchr(instring, '0'))         // DCC++ power off command <0>
+      {
+        Client.print("<p0>");                 // DCC++ expected power off response
+        nSpeed = 0;                           // set expected speed to nil
+        motorSpeed = 0;                       //immediately set motor speed to nil (overrides any momentum)
+        return;
+      }
+      else if (strchr(instring, 'T'))         // DCC++ Turnouts command
+      {
+        Client.print("<X>");                  // DCC++ null response
+        return;
+      }
+      else if (strchr(instring, 'S'))         // DCC++ Sensors command
+      {
+        Client.print("<X>");
+        return;
+      }
+      else if (strchr(instring, 'Z'))         // DCC++ IO Pin command
+      {
+        Client.print("<X>");                  // DCC++ null response
+        return;
+      }
+      else if (strchr(instring, 't'))         // DCC++ throttle command format <t reg CAB Speed Dir>
+      {
+        for (int i = 0; i < 5; i++)           // throttle commands should be 4 int long
+        {
+          tndx[i] = atoi(valPosition);        // convert to int
           valPosition = strtok(NULL, delimiters);
           if (i == 4 && tndx[2] == nCABAddr) {//when all fields are allocated and check command is for this CAB
+            nReg = tndx[1];              // gets index 4
             nSpeed = tndx[3];            // gets index 4
             nDir = tndx[4];              // gets index 5
+
             if (nSpeed == -1) nSpeed = 0;   //emergency stop
             motorSpeed = map(nSpeed, 0, 126, 0, 1023);   //throttle commands are supposed to range from -1 to 126
+            /*Throttle Commands*/
+            runMotor();                                 //runMotor() here to get instant response to throttle commands rather than wait for loop() to do it again
+            Client.print("<T ");                        //response to DCC++ Base station
+            Client.print(tndx[1]);                      //response to DCC++ Base station
+            Client.print(" ");                          //response to DCC++ Base station
+            Client.print(nSpeed);                       //response to DCC++ Base station
+            Client.print(" ");                          //response to DCC++ Base station
+            Client.print(nDir);                         //response to DCC++ Base station
+            Client.println(">");                        //response to DCC++ Base station
+            /*Serial.print("Throttle Command");
+              Serial.print(" nCABAddr ");
+              Serial.print(nCABAddr);
+              Serial.print(" nSpeed ");
+              Serial.print(nSpeed);
+              Serial.print("motorSpeed ");
+              Serial.print(motorSpeed);
+              Serial.print(" nDir ");
+              Serial.println(nDir);
+              Serial.print("Time: ");
+              Serial.print(millis() - startTime);
+              Serial.println(" ms");*/
             functions();                                //run through functions to ensure they update values, ie directionl lighting
-            Serial.print("Throttle Command");
-            Serial.print(" nCABAddr ");
-            Serial.print(nCABAddr);
-            Serial.print(" nSpeed ");
-            Serial.print(nSpeed);
-            Serial.print("motorSpeed ");
-            Serial.print(motorSpeed);
-            Serial.print(" nDir ");
-            Serial.println(nDir);
-            Serial.print("Time: ");
-            Serial.print(millis() - startTime);
-            Serial.println(" ms");
             yield();
           }
         }       //for
       } //Throttle Command
       /*Function Commands*/
-      else if (strchr(instring, 'f')) {      // function command format <f CAB eByte fByte>
-        for (int i = 0; i < 3; i++) {        // function commands should be 3 to 4 int long
+      else if (strchr(instring, 'f'))                   // DCC++ function command format <f CAB eByte fByte>
+      {
+        for (int i = 0; i < 3; i++)                     // function commands should be 3 to 4 int long
+        {
           tndx[i] = atoi(valPosition);
           valPosition = strtok(NULL, delimiters);
-          if (i == 2 && tndx[1] == nCABAddr) { //stop iterating before possible fByte null field and check command is for this CAB
-            fByte = tndx[2];            // gets index 3
-            Serial.print("Function Command");
-            Serial.print(" nCABAddr ");
-            Serial.print(nCABAddr);
-            Serial.print(" fByte ");
-            Serial.print(fByte);
+          if (i == 2 && tndx[1] == nCABAddr) {          //stop iterating before possible fByte null field and check command is for this CAB
+            fByte = tndx[2];                            // gets index 3
+            /*Serial.print("Function Command");
+              Serial.print(" nCABAddr ");
+              Serial.print(nCABAddr);
+              Serial.print(" fByte ");
+              Serial.print(fByte);*/
             yield();
-            if (tndx[2] > 221) {                 // fByte can be null, but is only invoked for eByte 222 or 223
-              tndx[3] = atoi(valPosition);       // go on to obtain fByte
+            if (tndx[2] > 221) {                 // eByte can be null, but is only invoked for fByte 222 or 223
+              tndx[3] = atoi(valPosition);       // go on to obtain eByte
               valPosition = strtok(NULL, delimiters);
               eByte = tndx[3];              // gets index 4, may be NULL
-              Serial.print(" eByte ");
-              Serial.println(eByte);
-              Serial.print("Time: ");
-              Serial.print(millis() - startTime);
-              Serial.println(" ms");
+              /*Serial.print(" eByte ");
+                Serial.println(eByte);
+                Serial.print("Time: ");
+                Serial.print(millis() - startTime);
+                Serial.println(" ms");*/
               functions();
             }
             else
             {
-              Serial.println(" eByte NULL "); //stop the stack crashing by giving it something to do in the else case!
-              Serial.print("Time: ");
-              Serial.print(millis() - startTime);
-              Serial.println(" ms");
+              /*Serial.println(" eByte NULL "); //stop the stack crashing by giving it something to do in the else case!
+                Serial.print("Time: ");
+                Serial.print(millis() - startTime);
+                Serial.println(" ms");*/
               functions();
             }
           }
@@ -438,7 +515,9 @@ void parseCmdString() {
       }//function command
       else
       {
-        Serial.print ("invalid Command");     //stop the stack crashing by giving it something to do in the else case
+        //
+        Serial.println ("invalid Command");     //stop the stack crashing by giving it something to do in the else case
+        return;
       }
     }//string complete
   }//serial.available;
@@ -473,7 +552,7 @@ void setup() {
   digitalWrite(LED1, LOW);
 
   pinMode(LED2, OUTPUT);
-  digitalWrite(LED2, LOW);  //see also 'ledState' in global decs
+  digitalWrite(LED2, LOW);
 
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
@@ -487,8 +566,8 @@ void setup() {
   pinMode(inputA2, OUTPUT);    //simple version of motor config
   analogWrite(inputA2, 0);       //set motor stop
 
-  Serial.begin(19200);            // configure serial interface
-  Serial.println("\nSerial Begin 19200 Baud");
+  Serial.begin(115200);            // configure serial interface
+  Serial.println("\nSerial Begin 115200 Baud");
   Serial.flush();
   // WIFI Begin
   WiFi.config(ip, gateway, subnet);
@@ -522,9 +601,6 @@ void setup() {
   Serial.println(WiFi.localIP());
   Serial.print("Current CAB is ");
   Serial.println(nCABAddr);
-
-
-
 }// end setup
 //===================================================================================
 void loop()
@@ -534,7 +610,3 @@ void loop()
   runMotor();                             // wasn't working in the middle of parseCmdString()
   firebox();                              // wasn't working in the middle of 'functions()'
 }
-
-
-
-
