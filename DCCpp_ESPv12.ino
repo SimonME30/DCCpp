@@ -231,7 +231,7 @@ void functions()
   // this is a request for functions F9-F12, which in this case control a servo for Walschearts Valve Gear
   if ((fByte & 0xF0) == 160)
   {
-    Serial.println("F9-F12 Command");
+    //Serial.println("F9-F12 Command");
 
     // F9-F12 Command Process (Byte values for F9-F12 range 160 - 175)
     if (nReverPos > map(fByte, 160, 175, FWD, REV))
