@@ -72,11 +72,11 @@ WiFiClient Client;                                  // Create instance of an WIF
 
 //===================================================================================
 //DCC++ Communications and Configurations
-int pwr=0;                  // DCC++ track power
+int pwr = 0;                // DCC++ track power
 char instring [23];         // command string creation
 byte ndx = 0;               // command string index
 int DEFAULTCAB = 3;         // DEFINE DEFAULT CAB ADDRESS
-int nCABAddr = 5565;        // CAB:  the short (1-127) or long (128-10293) address of the engine decoder, will store this in eeprom again later
+int nCABAddr = 5341;        // CAB:  the short (1-127) or long (128-10293) address of the engine decoder, will store this in eeprom again later
 int nReg = 0;               // throttle command from ndx[1]
 int nSpeed = 0;             // throttle command from ndx[4]
 byte nDir = 1;              // throttle command from ndx[5] (fwd)
@@ -189,6 +189,7 @@ void functions()
       for (nFrontPos = couple; nFrontPos >= uncouple; nFrontPos -= 1)
       {
         Front_CouplerServo.writeMicroseconds(nFrontPos);
+        delay(10);
         //Serial.print("F2 Front servo Pos:");
         //Serial.println(nFrontPos);
         yield();                   //get out of the way for WiFi connectivity
@@ -199,6 +200,7 @@ void functions()
       for (nFrontPos = uncouple; nFrontPos <= couple; nFrontPos += 1)
       {
         Front_CouplerServo.writeMicroseconds(nFrontPos);
+        delay(10);
         //Serial.print("F2 Front servo Pos:");
         //Serial.println(nFrontPos);
         yield();                   //get out of the way for WiFi connectivity
@@ -212,6 +214,7 @@ void functions()
       for (nRearPos = couple; nRearPos >= uncouple; nRearPos -= 1)
       {
         Rear_CouplerServo.writeMicroseconds(nRearPos);
+        delay(10);
         //Serial.print("F3 Rear servo Pos:");
         //Serial.println(nRearPos);
         yield();                   //get out of the way for WiFi connectivity
@@ -222,6 +225,7 @@ void functions()
       for (nRearPos = uncouple; nRearPos <= couple; nRearPos += 1)
       {
         Rear_CouplerServo.writeMicroseconds(nRearPos);
+        delay(10);
         //Serial.print("F3 Rear servo Pos:");
         //Serial.println(nRearPos);
         yield();                   //get out of the way for WiFi connectivity
@@ -239,6 +243,7 @@ void functions()
       for ( ; nReverPos >= map(fByte, 160, 175, FWD, REV); nReverPos -= 1)
       {
         ReverserServo.writeMicroseconds(nReverPos);
+        delay(10);
         //Serial.print("F9-F12 Reverser Reduce cut-off:");
         //Serial.println(nReverPos);
         yield();                   //get out of the way for WiFi connectivity
@@ -249,6 +254,7 @@ void functions()
       for ( ; nReverPos <= map(fByte, 160, 175, FWD, REV); nReverPos += 1)
       {
         ReverserServo.writeMicroseconds(nReverPos);
+        delay(10);
         //Serial.print("F9-F12 Reverser Increase Cut-off:");
         //Serial.println(nReverPos);
         yield();                   //get out of the way for WiFi connectivity
@@ -370,7 +376,7 @@ void parseCmdString() {
       instring[ndx] = '\0';               // terminating character added to the string
       ndx = 0;                            // reset ndx to 0 for the next string
 
-      //Serial.println(instring);             //print the raw string for de-bugging
+      Serial.println(instring);             //print the raw string for de-bugging
 
 
 
@@ -382,23 +388,26 @@ void parseCmdString() {
 
       if (strchr(instring, 's'))//in DCCpp_Uno see Serial.command.cpp line 345
       {
+
         Client.print("<p");
         Client.print(pwr);
         Client.print(">");
-        Client.print("<iDCC++ BASE STATION FOR ARDUINO ");
+        Client.print("<iDCC++BASE STATION FOR ARDUINO ");//V1.2 Syntax has a spac before Base
         Client.print("UNO");                  //should be ARDUINO_TYPE, hardcoded so as not to confuse JMRI
         Client.print(" / ");
         Client.print("ARDUINO MOTOR SHIELD"); //should be MOTOR_SHIELD_NAME, hardcoded so as not to confuse JMRI
-        Client.print(": V-");
-        Client.print("1.2.1+");               //should be VERSION, matched to the DCC++ base station version
+        Client.print(": BUILD V-");         //matches V1.1 syntax
+        Client.print("1.1");               //should be VERSION 1.2.1++, matched to the DCC++ base station version
         Client.print(" / ");
         Client.print(__DATE__);
         Client.print(" ");
         Client.print(__TIME__);
         Client.print(">");
-        Client.print("<N1:");                 // Communication type, 0 = Serial, 1 = Ethernet
+        //Client.print("<N0: SERIAL>");
+        Client.print("<N1: ");                 // Communication type, 0 = Serial, 1 = Ethernet
         Client.print(WiFi.localIP());
         Client.print(">");
+        Client.print("<X><X>");                 // Sensor & Turnout status responses
         return;
       }
       else if (strchr(instring, '1'))         // DCC++ power on command <1>
